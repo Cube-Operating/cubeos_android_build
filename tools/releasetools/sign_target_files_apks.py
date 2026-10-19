@@ -704,9 +704,24 @@ def ProcessTargetFiles(input_tf_zip: zipfile.ZipFile, output_tf_zip: zipfile.Zip
 
   RegenerateKernelPartitions(input_tf_zip, output_tf_zip, misc_info)
 
+  # CubeOS: a partition shipped as a ready-made image (BOARD_PREBUILT_*IMAGE, e.g. the stock
+  # vendor.img of the Cube Phone) has no source directory, so add_img_to_target_files can't
+  # rebuild it after signing and it went missing (the OTA then failed: "Partition vendor not
+  # found"). Such images aren't re-signed: keep them as they are.
+  source_dirs = {n.split("/", 1)[0] for n in input_tf_zip.namelist() if "/" in n}
+
+  def _prebuilt_image(name):
+    if not (name.startswith("IMAGES/") and name.endswith((".img", ".map"))):
+      return False
+    part = name[len("IMAGES/"):].rsplit(".", 1)[0]
+    return part in ("vendor", "odm", "product", "system_ext", "vendor_dlkm", "odm_dlkm") \
+        and part.upper() not in source_dirs
+
   for info in input_tf_zip.infolist():
     filename = info.filename
     if filename.startswith("IMAGES/"):
+      if _prebuilt_image(filename):
+        common.ZipWriteStr(output_tf_zip, info, input_tf_zip.read(filename))
       continue
 
     # Skip OTA-specific images (e.g. split super images), which will be
